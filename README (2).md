@@ -1,6 +1,7 @@
 # Analizator siły hasła
+**Demo na żywo:** https://adrianmalysa49-code.github.io/analizator-hasla/
 
-Prosta aplikacja webowa do oceny siły hasła, napisana w czystym HTML/CSS/JavaScript (jeden plik, bez bibliotek). Projekt na zajęcia z cyberbezpieczeństwa.
+Prosta aplikacja webowa do oceny siły hasła, napisana w czystym HTML/CSS/JavaScript (jeden plik, bez bibliotek). Projekt na zajęcia z przedmiotu Bezpieczeństwo Systemów Informatycznych.
 
 ## Opis
 
