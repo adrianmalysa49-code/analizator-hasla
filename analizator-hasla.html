@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analizator siły hasła</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+    --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
+  .input-row { display: flex; gap: 8px; }
+  input[type="text"] {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-size: 1rem;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  input:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+  button {
+    background: var(--border);
+    border: none;
+    border-radius: 8px;
+    padding: 0 14px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  button:hover { background: #475569; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .bar-track {
+    height: 10px;
+    background: var(--bg);
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 16px 0 8px;
+  }
+  .bar-fill {
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    transition: width 0.25s ease, background 0.25s ease;
+  }
+  .verdict { font-weight: 600; font-size: 1.1rem; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .stat {
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .stat .k { font-size: 0.75rem; color: var(--muted); }
+  .stat .v { font-size: 1.05rem; font-weight: 600; margin-top: 2px; }
+  ul { list-style: none; }
+  li { padding: 6px 0; font-size: 0.9rem; display: flex; gap: 8px; align-items: baseline; }
+  li .mark { width: 16px; flex-shrink: 0; }
+  .ok { color: #4ade80; }
+  .warn { color: #fbbf24; }
+  .note { color: var(--muted); font-size: 0.8rem; margin-top: 12px; line-height: 1.5; }
+  .breach-btn {
+    width: 100%;
+    background: var(--accent);
+    color: #0f172a;
+    font-weight: 600;
+    padding: 12px;
+    font-size: 0.95rem;
+    margin-top: 4px;
+  }
+  .breach-btn:hover { background: #7dd3fc; }
+  .breach-result { margin-top: 16px; font-size: 0.95rem; line-height: 1.5; display: none; }
+  .breach-result.show { display: block; }
+  .breach-safe { color: #4ade80; font-weight: 600; }
+  .breach-pwned { color: #f87171; font-weight: 600; }
+  .breach-count { font-size: 1.6rem; font-weight: 700; color: #f87171; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Analizator siły hasła</h1>
+  <p class="sub">Szacuje entropię hasła i odporność na atak siłowy. Nic nie jest wysyłane — wszystko liczy się lokalnie w przeglądarce.</p>
+
+  <div class="card">
+    <label for="pwd">Wpisz hasło do sprawdzenia</label>
+    <div class="input-row">
+      <input type="text" id="pwd" autocomplete="off" spellcheck="false" placeholder="np. Kot@2026!">
+      <button id="toggle" type="button">Wyczyść</button>
+    </div>
+
+    <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+    <div class="verdict" id="verdict">Wpisz hasło, aby zacząć</div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">Entropia</div><div class="v" id="entropy">—</div></div>
+      <div class="stat"><div class="k">Długość</div><div class="v" id="length">—</div></div>
+      <div class="stat"><div class="k">Pula znaków</div><div class="v" id="pool">—</div></div>
+      <div class="stat"><div class="k">Czas złamania*</div><div class="v" id="crack">—</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>Kryteria</label>
+    <ul id="checks"></ul>
+    <p class="note">* Szacunek przy założeniu 10 miliardów prób na sekundę (realistyczne dla ataku offline na słaby skrót typu MD5/SHA-1). Dobry algorytm (bcrypt, Argon2) wydłuża ten czas o rzędy wielkości. Entropia liczona jako długość × log₂(puli znaków).</p>
+  </div>
+
+  <div class="card">
+    <label>Sprawdzenie wycieku (Have I Been Pwned)</label>
+    <button class="breach-btn" id="breachBtn" type="button">Sprawdź, czy hasło wyciekło</button>
+    <div class="breach-result" id="breachResult"></div>
+    <p class="note">Wykorzystuje model <strong>k-anonimowości</strong>: hasło jest haszowane lokalnie (SHA-1), a do serwera wysyłane jest tylko <strong>pierwszych 5 znaków</strong> skrótu. Serwer odsyła listę pasujących końcówek, a dopasowanie sprawdzane jest u Ciebie. Pełne hasło ani pełny skrót nigdy nie opuszczają przeglądarki. Wymaga połączenia z internetem oraz uruchomienia przez HTTPS (GitHub Pages / Vercel) lub localhost.</p>
+  </div>
+</div>
+
+<script>
+  const pwd = document.getElementById("pwd");
+  const bar = document.getElementById("bar");
+  const verdict = document.getElementById("verdict");
+  const entropyEl = document.getElementById("entropy");
+  const lengthEl = document.getElementById("length");
+  const poolEl = document.getElementById("pool");
+  const crackEl = document.getElementById("crack");
+  const checksEl = document.getElementById("checks");
+  const breachBtn = document.getElementById("breachBtn");
+  const breachResult = document.getElementById("breachResult");
+
+  const GUESSES_PER_SEC = 1e10;
+
+  function charPool(p) {
+    let pool = 0;
+    if (/[a-z]/.test(p)) pool += 26;
+    if (/[A-Z]/.test(p)) pool += 26;
+    if (/[0-9]/.test(p)) pool += 10;
+    if (/[^A-Za-z0-9]/.test(p)) pool += 33; // typowe znaki specjalne
+    return pool;
+  }
+
+  function formatTime(seconds) {
+    if (seconds < 1) return "natychmiast";
+    const units = [
+      ["wieków", 100 * 365 * 24 * 3600],
+      ["lat", 365 * 24 * 3600],
+      ["dni", 24 * 3600],
+      ["godzin", 3600],
+      ["minut", 60],
+      ["sekund", 1],
+    ];
+    for (const [name, secs] of units) {
+      if (seconds >= secs) {
+        const val = seconds / secs;
+        if (val >= 1e9) return "miliardy " + name;
+        if (val >= 1e6) return "miliony " + name;
+        if (val >= 1e3) return Math.round(val / 1000) + " tys. " + name;
+        return Math.round(val) + " " + name;
+      }
+    }
+    return "natychmiast";
+  }
+
+  function analyze(p) {
+    const len = p.length;
+    const pool = charPool(p);
+    const entropy = len > 0 ? len * Math.log2(pool || 1) : 0;
+    const combinations = Math.pow(pool, len);
+    const seconds = combinations / GUESSES_PER_SEC;
+
+    entropyEl.textContent = entropy.toFixed(1) + " bit";
+    lengthEl.textContent = len + " znaków";
+    poolEl.textContent = pool + " symboli";
+    crackEl.textContent = len > 0 ? formatTime(seconds) : "—";
+
+    let label, color, pct;
+    if (len === 0) { label = "Wpisz hasło, aby zacząć"; color = "var(--border)"; pct = 0; }
+    else if (entropy < 28) { label = "Bardzo słabe"; color = "#ef4444"; pct = 15; }
+    else if (entropy < 40) { label = "Słabe"; color = "#f97316"; pct = 35; }
+    else if (entropy < 60) { label = "Umiarkowane"; color = "#fbbf24"; pct = 60; }
+    else if (entropy < 80) { label = "Silne"; color = "#4ade80"; pct = 82; }
+    else { label = "Bardzo silne"; color = "#22d3ee"; pct = 100; }
+
+    verdict.textContent = label;
+    verdict.style.color = color;
+    bar.style.width = pct + "%";
+    bar.style.background = color;
+
+    renderChecks(p);
+
+    // reset wyniku wycieku przy każdej zmianie hasła
+    breachResult.classList.remove("show");
+    breachResult.innerHTML = "";
+  }
+
+  function renderChecks(p) {
+    const rules = [
+      { ok: p.length >= 12, text: "Co najmniej 12 znaków" },
+      { ok: /[a-z]/.test(p) && /[A-Z]/.test(p), text: "Małe i wielkie litery" },
+      { ok: /[0-9]/.test(p), text: "Przynajmniej jedna cyfra" },
+      { ok: /[^A-Za-z0-9]/.test(p), text: "Przynajmniej jeden znak specjalny" },
+      { ok: !/(.)\1\1/.test(p), text: "Brak trzech powtórzonych znaków z rzędu" },
+      { ok: !/^(123|qwerty|haslo|hasło|password|admin)/i.test(p), text: "Nie zaczyna się od typowego wzorca" },
+    ];
+    checksEl.innerHTML = rules.map(r =>
+      `<li class="${r.ok ? 'ok' : 'warn'}"><span class="mark">${r.ok ? '✓' : '✗'}</span>${r.text}</li>`
+    ).join("");
+  }
+
+  // --- Sprawdzanie wycieku przez Have I Been Pwned (k-anonimowość) ---
+
+  async function sha1Hex(text) {
+    const data = new TextEncoder().encode(text);
+    const buf = await crypto.subtle.digest("SHA-1", data);
+    return Array.from(new Uint8Array(buf))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase();
+  }
+
+  async function checkBreach() {
+    const password = pwd.value;
+    if (!password) {
+      showBreach('<span class="warn">Najpierw wpisz hasło.</span>');
+      return;
+    }
+    if (!window.crypto || !crypto.subtle) {
+      showBreach('<span class="warn">To przeglądarka nie udostępnia Web Crypto w tym kontekście. Uruchom aplikację przez HTTPS (GitHub Pages / Vercel) lub localhost.</span>');
+      return;
+    }
+
+    breachBtn.disabled = true;
+    breachBtn.textContent = "Sprawdzam...";
+
+    try {
+      const hash = await sha1Hex(password);
+      const prefix = hash.slice(0, 5);
+      const suffix = hash.slice(5);
+
+      const res = await fetch("https://api.pwnedpasswords.com/range/" + prefix);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const body = await res.text();
+
+      let count = 0;
+      for (const line of body.split("\n")) {
+        const [suf, cnt] = line.trim().split(":");
+        if (suf === suffix) { count = parseInt(cnt, 10); break; }
+      }
+
+      if (count > 0) {
+        showBreach(
+          '<div class="breach-pwned">Hasło wystąpiło w znanych wyciekach!</div>' +
+          '<div class="breach-count">' + count.toLocaleString("pl-PL") + '</div>' +
+          '<div>razy w bazach naruszeń. Nie używaj tego hasła.</div>'
+        );
+      } else {
+        showBreach(
+          '<div class="breach-safe">Nie znaleziono tego hasła w bazie wycieków.</div>' +
+          '<div>To nie gwarantuje bezpieczeństwa, ale dobry znak.</div>'
+        );
+      }
+    } catch (e) {
+      showBreach('<span class="warn">Nie udało się połączyć z API (' + e.message + '). Sprawdź internet lub czy strona działa przez HTTPS.</span>');
+    } finally {
+      breachBtn.disabled = false;
+      breachBtn.textContent = "Sprawdź, czy hasło wyciekło";
+    }
+  }
+
+  function showBreach(html) {
+    breachResult.innerHTML = html;
+    breachResult.classList.add("show");
+  }
+
+  pwd.addEventListener("input", () => analyze(pwd.value));
+  document.getElementById("toggle").addEventListener("click", () => {
+    pwd.value = "";
+    analyze("");
+    pwd.focus();
+  });
+  breachBtn.addEventListener("click", checkBreach);
+
+  analyze("");
+</script>
+</body>
+</html>
